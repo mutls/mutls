@@ -2,13 +2,22 @@ name: 🔄 自包含 Go Module 自动重命名
 
 on:
   push:
+  workflow_dispatch:
+
 jobs:
   rename:
     runs-on: ubuntu-latest
+    
+    # ⭐ 关键修改：添加权限配置 ⭐
+    # contents: write 允许工作流程提交和推送代码更改。
+    # workflows: write 允许工作流程修改或提交工作流程文件自身 (解决远程拒绝错误)。
+    permissions:
+      contents: write
+      workflows: write 
+      
     steps:
       - name: ⬇️ Checkout repository (with push token)
-        # 必须使用 actions/checkout@v4，并且传入 GITHUB_TOKEN，
-        # 才能在后面拥有推送的权限
+        # 必须传入 GITHUB_TOKEN，以便后续 Git 命令可以推送更改。
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -29,7 +38,6 @@ jobs:
           
           # 1. 替换 go.mod 文件中的 module 路径
           echo "1. Renaming module definition in go.mod..."
-          # sed 替换 module 定义
           sed -i "s|module $OLD_MODULE|module $NEW_MODULE|g" go.mod
 
           # 2. 替换所有 .go 文件中的导入路径
@@ -76,9 +84,8 @@ jobs:
           # 2. 提交更改
           git commit -m "$COMMIT_MESSAGE"
           
-          # 3. 推送更改到当前分支（${{ github.ref }} 即为触发事件的分支，例如 refs/heads/main）
+          # 3. 推送更改到当前分支
           echo "Pushing changes back to repository..."
-          # 使用 --force-with-lease 避免覆盖其他人的工作，同时 git push 默认使用 checkout 步骤中配置的 GITHUB_TOKEN 权限
           git push
           
           echo "Commit and push successful."
