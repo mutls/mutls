@@ -2,7 +2,6 @@ name: 🔄 自包含 Go Module 自动重命名
 
 on:
   push:
-
 jobs:
   rename:
     runs-on: ubuntu-latest
