@@ -1,0 +1,82 @@
+name: 🔄 Auto Rename Go Module
+
+on:
+  # 触发工作流程的事件
+  push:
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' # 根据你的项目选择合适的Go版本
+
+      - name: 📝 Rename Module Paths and Update Files
+        id: rename
+        run: |
+          # --- 定义变量 ---
+          OLD_MODULE="github.com/refraction-networking/utls"
+          NEW_MODULE="github.com/mutls/mutls"
+          
+          echo "Starting module rename from $OLD_MODULE to $NEW_MODULE..."
+          
+          # 1. 替换 go.mod 文件中的 module 路径
+          echo "1. Renaming module definition in go.mod..."
+          # 使用 sed 替换 go.mod 文件中的 module 定义
+          # 注意：使用 | 作为分隔符，以避免路径中的 / 产生冲突
+          if sed -i "s|module $OLD_MODULE|module $NEW_MODULE|g" go.mod; then
+              echo "go.mod updated successfully."
+          else
+              echo "Error: Failed to update go.mod module definition."
+              exit 1
+          fi
+
+          # 2. 替换所有 .go 文件中的导入路径
+          echo "2. Renaming import paths in all Go files..."
+          # 查找所有 .go 文件并替换旧的导入路径
+          find . -type f -name "*.go" -exec sed -i "s|$OLD_MODULE|$NEW_MODULE|g" {} +
+
+          # 3. 替换非Go文件中的引用 (例如 README, 文档, CI配置文件等)
+          echo "3. Renaming references in documentation and other files..."
+          # 查找 .md, .yml, .yaml 文件并替换引用
+          find . -type f \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) -exec sed -i "s|$OLD_MODULE|$NEW_MODULE|g" {} +
+
+          # 4. 运行 go mod tidy 来处理 go.mod 中的依赖和更新 go.sum
+          echo "4. Running go mod tidy to clean dependencies and update go.sum..."
+          go mod tidy
+          
+          echo "Module renaming operations finished."
+
+      - name: ⚙️ Check for changes
+        id: git_status
+        # 使用 --porcelain 检查工作区是否有未提交的更改
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changes_detected=true" >> $GITHUB_OUTPUT
+            echo "Changes detected: Files need to be committed."
+          else
+            echo "changes_detected=false" >> $GITHUB_OUTPUT
+            echo "No changes detected. Module path is already correct."
+          fi
+
+      - name: 📝 Commit and Push changes
+        if: steps.git_status.outputs.changes_detected == 'true'
+        uses: stefanprodan/git-tools@v1
+        with:
+          # 配置Git用户信息
+          author: 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
+          message: 'chore(module): Auto rename Go module to github.com/mutls/mutls'
+          # 使用 GITHUB_TOKEN 来允许 Actions 推送更改
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 提交所有受影响的文件
+          files: |
+            go.mod
+            go.sum
+            **/*.go
+            **/*.md
+            **/*.yml
