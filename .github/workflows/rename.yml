@@ -1,4 +1,4 @@
-name: 🔄 自包含 Go Module 自动重命名
+name: 🔄 自包含 Go Module 自动重命名 (权限优化)
 
 on:
   push:
@@ -7,16 +7,14 @@ jobs:
   rename:
     runs-on: ubuntu-latest
     
-    # ⭐ 关键修改：添加权限配置 ⭐
-    # contents: write 允许工作流程提交和推送代码更改。
-    # workflows: write 允许工作流程修改或提交工作流程文件自身 (解决远程拒绝错误)。
+    # 权限优化：只需写入 contents 权限
     permissions:
-      contents: write
-      workflows: write 
-      
+      contents: write   # 允许写入代码和提交
+      # 不再需要 workflows: write 权限
+    
     steps:
-      - name: ⬇️ Checkout repository (with push token)
-        # 必须传入 GITHUB_TOKEN，以便后续 Git 命令可以推送更改。
+      - name: ⬇️ Checkout repository
+        # 必须传入 token 才能在后面拥有推送的权限
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -41,13 +39,12 @@ jobs:
 
           # 2. 替换所有 .go 文件中的导入路径
           echo "2. Renaming import paths in all Go files..."
-          # 查找所有 .go 文件并替换旧的导入路径
-          find . -type f -name "*.go" -exec sed -i "s|$OLD_MODULE|$NEW_MODULE|g" {} +
+          # 使用 -path './.git' -prune -o 避免查找隐藏目录
+          find . -path './.git' -prune -o -type f -name "*.go" -exec sed -i "s|$OLD_MODULE|$NEW_MODULE|g" {} +
 
-          # 3. 替换非Go文件中的引用 (例如 README, 文档等)
+          # 3. 替换非Go文件中的引用
           echo "3. Renaming references in documentation and other files..."
-          # 查找 .md, .yml, .yaml 文件并替换引用
-          find . -type f \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) -exec sed -i "s|$OLD_MODULE|$NEW_MODULE|g" {} +
+          find . -path './.git' -prune -o -type f \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) -exec sed -i "s|$OLD_MODULE|$NEW_MODULE|g" {} +
 
           # 4. 运行 go mod tidy 来处理 go.mod 中的依赖和更新 go.sum
           echo "4. Running go mod tidy to clean dependencies and update go.sum..."
@@ -63,7 +60,7 @@ jobs:
             echo "changes_detected=true" >> $GITHUB_OUTPUT
             echo "Changes detected: Files need to be committed."
             
-            # 配置 Git 用户信息，这是提交的必要步骤
+            # 配置 Git 用户信息
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             
@@ -72,18 +69,27 @@ jobs:
             echo "No changes detected. Skipping commit."
           fi
 
-      - name: 📝 Commit and Push changes
+      - name: 📝 Commit and Push changes (精确添加文件)
         if: steps.git_status.outputs.changes_detected == 'true'
         run: |
           COMMIT_MESSAGE="chore(module): Auto rename Go module to github.com/mutls/mutls"
           
-          # 1. 添加所有更改的文件
-          git add .
+          echo "Adding specific changed files to commit..."
           
-          # 2. 提交更改
+          # 1. 显式添加 go.mod 和 go.sum
+          git add go.mod go.sum
+
+          # 2. 查找并添加所有被修改的 Go 文件
+          # 注意：这里我们再次运行 find 命令，但这次是将其输出传递给 git add
+          find . -path './.git' -prune -o -type f -name "*.go" -print0 | xargs -0 git add
+          
+          # 3. 查找并添加所有被修改的文档/配置问文件
+          find . -path './.git' -prune -o -type f \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) -print0 | xargs -0 git add
+          
+          # 4. 提交更改
           git commit -m "$COMMIT_MESSAGE"
           
-          # 3. 推送更改到当前分支
+          # 5. 推送更改
           echo "Pushing changes back to repository..."
           git push
           
